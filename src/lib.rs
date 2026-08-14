@@ -25,7 +25,8 @@ pub struct Config {
     min_score: i64,
     #[serde_inline_default("https://github.com/NixOS/nixpkgs/blob/nixos-unstable".to_string())]
     nixpkgs_url: String,
-    max_entries: Option<usize>,
+    max_entries: Option<usize>, // todo make this not be an Option
+    strict_matching: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -135,6 +136,30 @@ fn info() -> PluginInfo {
     }
 }
 
+// case insensitive strict matcher
+fn strict_indices(key: &str, input: &str) -> Option<(i64, Vec<usize>)> {
+    if input.is_empty() {
+        return Some((0, vec![]));
+    }
+
+    let key_lower = key.to_lowercase();
+    let input_lower = input.to_lowercase();
+
+    let byte_pos = key_lower.find(&input_lower)?;
+
+    let char_start = key[..byte_pos].chars().count();
+    let match_len = input.chars().count();
+    let indices: Vec<usize> = (char_start..char_start + match_len).collect();
+
+    let score = if byte_pos == 0 {
+        1000 - (key.len() as i64 - match_len as i64)
+    } else {
+        500 - (byte_pos as i64)
+    };
+
+    Some((score, indices))
+}
+
 #[get_matches]
 fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
     let results = Arc::new(Mutex::new(RVec::<Match>::new()));
@@ -144,18 +169,24 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
 
         let input = if let Some(input) = input.strip_prefix(prefix) {
             let trimmed = input.trim();
-            trimmed.replace(" ", ".")
+            trimmed.replace(" ", ".") // todo option for this
         } else {
             continue;
         };
 
+        // todo strict matching option
         let matcher = fuzzy_matcher::skim::SkimMatcherV2::default().smart_case();
 
         let mut entries = option
             .1
             .par_iter()
             .filter_map(|(key, query)| {
-                let score = matcher.fuzzy_indices(&key, &input).unwrap_or((0, vec![]));
+                let score = if state.config.strict_matching {
+                        strict_indices(key, &input)
+                } else {
+                    matcher.fuzzy_indices(&key, &input)
+                }
+                .unwrap_or((0, vec![]));
 
                 if score.0 > state.config.min_score {
                     Some((score, key, query))
@@ -190,7 +221,7 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
                 let encoded_desc = html_escape::encode_text(desc);
 
                 let url_parsed = url_regex.replace_all(&encoded_desc, |caps: &regex::Captures| {
-                    format!(r#"<span foreground="lightblue"><u>{}</u></span>"#, &caps[1])
+                    format!(r#"<span foreground="lightblue"><u>{}</u></span>"#, &caps[1]) // todo add configs for these colors
                 });
 
                 let md_parsed = md_url_regex.replace_all(&url_parsed, |caps: &regex::Captures| {
