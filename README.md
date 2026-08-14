@@ -1,80 +1,77 @@
 # anyrun-nixos-options
 
+## This is a fork from n3oney/anyrun-nixos-options
+I do not own or am associated with any of this code, i simply bandaid fixed and updated it for my personal use <3
+
+All credits to https://github.com/n3oney/anyrun-nixos-options
+
 An anyrun plugin that lets you search NixOS options.
 
 # how 2 build?
 
-`nix build`
-... or `cargo build` optionally :)
+`nix build` or `cargo build` in the devshell (`nix develop`)
 
-# Configuration
+# Configuration (Home Manager)
 
-This plugin requires a config in your anyrun config directory called `nixos_options.ron`.
-The file looks like this:
+Under home manager, you configure this plugin the same way you would any other anyrun plugin
 
-```ron
-Config(
-  options: {":prefix": ["/path/to/options.json"] }, // You can obtain NixOS's options.json using config.system.build.manual.optionsJSON
-  min_score: 0, // Optional, the minimum score of entries to show. Set it to a larger value on slow machines. Default: 0
-  nixpkgs_url: "https://github.com/NixOS/nixpkgs/blob/nixos-unstable", // Optional, URL to Nixpkgs tree. Set it to use the same branch as you're using. Defaults to the unstable url.
-  max_entries: Some(10) // max_entries specific to this plugin. Set to None to disable
-)
-```
-
-**Important: Make sure to set a `max_entries` either in your anyrun config, or in this plugin's config. Without that, the plugin will be VERY slow, since there exist over 16 thousand options to search through at the time of writing this.**
-**I have set mine to 10, since even that value is enough for it to go off-screen, so you shouldn't lose any data.**
-
-# Using this with NixOS?
-
-Under flakes, the following instructions will apply:
-
-1. Use the [anyrun home-manager module](https://github.com/Kirottu/anyrun/blob/master/nix/hm-module.nix)
-2. Add the plugin to your anyrun plugins list
+In your anyrun config :
 
 ```nix
-programs.anyrun.config = {
-    # ...
-    plugins = [
-        inputs.anyrun-nixos-options.packages.${pkgs.system}.default
-        # other plugins that you might have
-    ];
-    # ...
+programs.anyrun = {
+    # your other anyrun options
+    
+    extraConfigFiles."nixos-options.ron".text = let 
+        # fetch the option jsons locally
+        nixos-options = osConfig.system.build.manual.optionsJSON + "/share/doc/nixos/options.json";
+		hm-options = inputs.home-manager.packages.${pkgs.system}.docs-json + "/share/doc/home-manager/options.json";
+    
+        # assign prefixes to them
+        options = builtins.toJSON {
+			":nix" = [ nixos-options ];
+			":hm" = [ hm-options ];
+		};
+	in ''
+	    Config(
+	        options: ${options},
+	        
+	        // Optional (these are the defaults):
+            min_score: 0,
+            nixpkgs_url: "https://github.com/NixOS/nixpkgs/blob/nixos-unstable", 
+            max_entries: 5,
+            strict_matching: false,
+            url_color: "lightblue",
+            file_color: "lightgreen",
+            match_color: "#db5a65"
+        )
+	'';
 };
 ```
 
-3. Create a config file for it:
+# Configuration (Non-HM)
 
-```nix
-#                  ↓ make sure osConfig is in the argument set
-{inputs, pkgs, osConfig,  ...}: {
-    programs.anyrun.extraConfigFiles."nixos-options.ron".text = let
-        #               ↓ home-manager refers to the nixos configuration as osConfig
-        nixos-options = osConfig.system.build.manual.optionsJSON + "/share/doc/nixos/options.json";
-        # merge your options
-        options = builtins.toJSON {
-          ":nix" = [nixos-options];
-        };
-        # or alternatively if you wish to read any other documentation options, such as home-manager
-        # get the docs-json package from the home-manager flake
-        # hm-options = inputs.home-manager.packages.${pkgs.system}.docs-json + "/share/doc/home-manager/options.json";
-        # options = builtins.toJSON {
-        #   ":nix" = [nixos-options];
-        #   ":hm" = [hm-options];
-        #   ":something-else" = [some-other-option];
-        #   ":nall" = [nixos-options hm-options some-other-option];
-        # };
+Create your `nixos-options.ron` file in the anyrun config directory :
 
-    in ''
-        Config(
-            // add your option paths
-            options: ${options},
-         )
-    '';
-}
-
+```ron
+Config(
+    // You can obtain NixOS's options.json by running `nix build .#nixosConfigrations.<name>.config.system.build.manual.optionsJSON` in your Flake directory
+    options: {":nix": ["/path/to/options.json"]},
+	        
+	// Optional (these are the defaults):
+    min_score: 0,
+    nixpkgs_url: "https://github.com/NixOS/nixpkgs/blob/nixos-unstable", 
+    max_entries: 5,
+    strict_matching: false,
+    url_color: "lightblue",
+    file_color: "lightgreen",
+    match_color: "#db5a65"
+)
 ```
 
-4. You are done. Rebuild your system and run anyrun as usual. `:nix` should bring up
-   your NixOS (and any other configured) options
+# Usage
 
-Without flakes, inputs... generally should be changed to <channel> or <source> depending on your usage.
+Search for any option in the docs by typing the prefix then the option
+
+Uses either fuzzy matching or strict matching depending on the config
+
+![img.png](assets/img.png)

@@ -27,6 +27,7 @@ pub struct Config {
     nixpkgs_url: String,
     #[serde_inline_default(5)]
     max_entries: usize,
+    #[serde_inline_default(false)]
     strict_matching: bool,
     #[serde_inline_default("lightblue".to_string())]
     url_color: String,

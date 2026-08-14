@@ -32,6 +32,8 @@
           rustfmt
           rust-analyzer
         ];
+
+        RUST_SRC_PATH="${pkgs.rustc}/lib/rustlib/src/rust/library";
       };
     });
   };
