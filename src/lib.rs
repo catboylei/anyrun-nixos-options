@@ -25,8 +25,15 @@ pub struct Config {
     min_score: i64,
     #[serde_inline_default("https://github.com/NixOS/nixpkgs/blob/nixos-unstable".to_string())]
     nixpkgs_url: String,
-    max_entries: Option<usize>, // todo make this not be an Option
+    #[serde_inline_default(5)]
+    max_entries: usize,
     strict_matching: bool,
+    #[serde_inline_default("lightblue".to_string())]
+    url_color: String,
+    #[serde_inline_default("lightgreen".to_string())]
+    file_color: String,
+    #[serde_inline_default("#db5a65".to_string())]
+    match_color: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -168,13 +175,15 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
         let prefix = option.0;
 
         let input = if let Some(input) = input.strip_prefix(prefix) {
-            let trimmed = input.trim();
-            trimmed.replace(" ", ".") // todo option for this
+            if !state.config.strict_matching {
+                input.trim().replace(" ", ".")
+            } else {
+                input.trim().to_string()
+            }
         } else {
             continue;
         };
 
-        // todo strict matching option
         let matcher = fuzzy_matcher::skim::SkimMatcherV2::default().smart_case();
 
         let mut entries = option
@@ -198,7 +207,7 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
 
         entries.par_sort_unstable_by(|a, b| (b.0).0.cmp(&(a.0).0));
 
-        let plugin_max_entries = state.config.max_entries.unwrap_or(usize::MAX);
+        let plugin_max_entries = state.config.max_entries;
         let anyrun_max_entries = state.anyrun_cfg.max_entries.unwrap_or(usize::MAX);
 
         let max_entries = plugin_max_entries.min(anyrun_max_entries);
@@ -216,20 +225,24 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
 
         let res = results.clone();
 
+        let url_color = state.config.url_color.clone();
+        let file_color = state.config.file_color.clone();
+        let match_color = state.config.match_color.clone();
+
         entries.par_iter().for_each(move |entry| {
             let mut description = if let Some(desc) = &entry.2.description {
                 let encoded_desc = html_escape::encode_text(desc);
 
                 let url_parsed = url_regex.replace_all(&encoded_desc, |caps: &regex::Captures| {
-                    format!(r#"<span foreground="lightblue"><u>{}</u></span>"#, &caps[1]) // todo add configs for these colors
+                    format!(r#"<span foreground="{}"><u>{}</u></span>"#, url_color, &caps[1])
                 });
 
                 let md_parsed = md_url_regex.replace_all(&url_parsed, |caps: &regex::Captures| {
-                    format!(r#"<span foreground="lightblue"><u>{}</u></span>"#, &caps[1])
+                    format!(r#"<span foreground="{}"><u>{}</u></span>"#, url_color, &caps[1])
                 });
 
                 let file_parsed = file_regex.replace_all(&md_parsed, |caps: &regex::Captures| {
-                    format!(r#"<span foreground="lightgreen">{}</span>"#, &caps[1])
+                    format!(r#"<span foreground="{}">{}</span>"#, file_color, &caps[1])
                 });
 
                 let command_parsed =
@@ -240,14 +253,15 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
                 let option_parsed =
                     option_regex.replace_all(&command_parsed, |caps: &regex::Captures| {
                         format!(
-                            r#"<span font_family="monospace" foreground="orange">{}</span>"#,
+                            r#"<span font_family="monospace" foreground="{}">{}</span>"#,
+                            match_color,
                             &caps[1]
                         )
                     });
 
                 let plain_url_parsed =
                     plain_url_regex.replace_all(&option_parsed, |caps: &regex::Captures| {
-                        format!(r#"<span foreground="lightblue"><u>{}</u></span>"#, &caps[1])
+                        format!(r#"<span foreground="{}"><u>{}</u></span>"#, url_color, &caps[1])
                     });
 
                 plain_url_parsed.trim().to_string()
@@ -293,7 +307,7 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
             while let Some((i, char)) = iterator.next() {
                 if entry.0 .1.contains(&i) {
                     if !is_red {
-                        title.push_str(&format!("<span weight=\"bold\" foreground=\"#db5a65\">"));
+                        title.push_str(&format!("<span weight=\"bold\" foreground=\"{}\">", match_color));
                         is_red = true;
                     }
 
@@ -332,7 +346,7 @@ fn get_matches(input: RString, state: &mut State) -> RVec<Match> {
 #[handler]
 fn handler(selection: Match, state: &mut State) -> HandleResult {
     let span_regex =
-        regex::Regex::new(r##"<span weight="bold" foreground="#db5a65">(.+?)</span>"##).unwrap();
+        regex::Regex::new(&format!(r##"<span weight="bold" foreground="{}">(.+?)</span>"##, state.config.match_color)).unwrap();
 
     let key = span_regex
         .replace_all(&selection.title, |caps: &regex::Captures| {
